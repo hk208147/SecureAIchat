@@ -1,0 +1,41 @@
+# Copy this file to terraform.tfvars and fill in all values.
+# Never commit terraform.tfvars — it contains sensitive identifiers.
+#
+# How to obtain each value is described in README.md § Rebuild Procedure.
+
+# Email address for cost/usage alert notifications (SNS + AWS Budgets)
+alert_email = "your@email.com"
+
+# Cognito sub of the sole authorized user.
+# Leave empty ("") on first apply. Set after creating the Cognito user and
+# running: aws cognito-idp admin-get-user --user-pool-id <pool_id> --username <email>
+# Then re-apply Terraform to activate single-user access control in Lambda.
+allowed_sub = ""
+
+# ARN of the Bedrock AU cross-region inference profile for Sonnet 4.6.
+# Obtain with:
+#   aws bedrock get-inference-profile \
+#     --inference-profile-identifier au.anthropic.claude-sonnet-4-6 \
+#     --region ap-southeast-2 --profile bedrock-terraform
+bedrock_inference_profile_arn = "arn:aws:bedrock:ap-southeast-2:<account_id>:inference-profile/au.anthropic.claude-sonnet-4-6"
+
+# ARNs of the base foundation models that the AU Sonnet 4.6 profile routes to.
+# The AU profile routes across Sydney (ap-southeast-2) and Melbourne (ap-southeast-4).
+# Obtain with: aws bedrock list-foundation-models --region <region> --profile bedrock-terraform
+bedrock_base_model_arns = [
+  "arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-sonnet-4-6-v1",
+  "arn:aws:bedrock:ap-southeast-4::foundation-model/anthropic.claude-sonnet-4-6-v1",
+]
+
+# ARN of the Bedrock AU cross-region inference profile for Opus 4.6-v1 (comparison model).
+# Obtain with:
+#   aws bedrock get-inference-profile \
+#     --inference-profile-identifier au.anthropic.claude-opus-4-6-v1 \
+#     --region ap-southeast-2 --profile bedrock-terraform
+bedrock_opus46_inference_profile_arn = "arn:aws:bedrock:ap-southeast-2:<account_id>:inference-profile/au.anthropic.claude-opus-4-6-v1"
+
+# ARNs of the base foundation models that the AU Opus 4.6-v1 profile routes to.
+bedrock_opus46_base_model_arns = [
+  "arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-opus-4-6-v1",
+  "arn:aws:bedrock:ap-southeast-4::foundation-model/anthropic.claude-opus-4-6-v1",
+]
