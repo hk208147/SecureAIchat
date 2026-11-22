@@ -1,5 +1,6 @@
 # Secure AI Chat
 
+AIDD学習用プロジェクト
 Amazon Bedrock (Claude Sonnet 4.6 / Opus 4.6) を使った個人専用 AI チャットアプリ。
 1 ユーザー専用設計。Cognito 認証 (TOTP MFA 必須) でアクセス制御。
 
