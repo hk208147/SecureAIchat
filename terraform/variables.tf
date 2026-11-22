@@ -40,7 +40,7 @@ variable "bedrock_inference_profile_arn" {
       aws bedrock get-inference-profile \
         --inference-profile-identifier au.anthropic.claude-sonnet-4-6 \
         --region ap-southeast-2 \
-        --profile bedrock-dev
+        --profile bedrock-terraform
   EOT
   type        = string
 }
@@ -50,8 +50,8 @@ variable "bedrock_base_model_arns" {
     ARNs of the Bedrock foundation models that the AU cross-region inference profile routes to.
     The AU profile routes across Sydney (ap-southeast-2) and Melbourne (ap-southeast-4).
     TODO: Verify the exact ARNs before terraform apply by running:
-      aws bedrock list-foundation-models --region ap-southeast-2 --profile bedrock-dev
-      aws bedrock list-foundation-models --region ap-southeast-4 --profile bedrock-dev
+      aws bedrock list-foundation-models --region ap-southeast-2 --profile bedrock-terraform
+      aws bedrock list-foundation-models --region ap-southeast-4 --profile bedrock-terraform
   EOT
   type        = list(string)
 }

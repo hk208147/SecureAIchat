@@ -10,7 +10,7 @@
 - [ ] `aws bedrock get-inference-profile` で Bedrock ARN を確認・`terraform.tfvars` に記載
 - [ ] 120 USD クレジットの Bedrock 適用可否を Billing > Credits で確認
 - [ ] 既存の AWS Budgets ($5 設定の有無) を Billing コンソールで確認
-- [ ] `aws login --profile bedrock-dev` でセッション有効確認
+- [ ] `aws sso login --profile bedrock-terraform` でセッション有効確認
 - [ ] AU Cross-Region Inference の Free plan 利用可否確認（初回成功後 15 分以上経過して継続確認）
 - [ ] `terraform.tfvars` の `alert_email` 設定
 - [ ] `frontend/.env.local` は Terraform output 後に作成（後述）
@@ -23,7 +23,7 @@ AWS providerは `~> 6.12.0`。旧v5のlockファイルがある場合、`terrafo
 
 ```powershell
 cd C:\Users\Hidey\AWS-Learning\terraform
-$env:AWS_PROFILE = "bedrock-dev"
+$env:AWS_PROFILE = "bedrock-terraform"
 $env:AWS_REGION = "ap-southeast-2"
 
 # terraform.tfvars を作成（デプロイ前チェック後）
@@ -56,13 +56,13 @@ aws cognito-idp admin-create-user `
   --username "your@email.com" `
   --user-attributes Name=email,Value="your@email.com" Name=email_verified,Value=true `
   --temporary-password $TempPassword `
-  --profile bedrock-dev
+  --profile bedrock-terraform
 
 # sub を取得
 aws cognito-idp admin-get-user `
   --user-pool-id $POOL_ID `
   --username "your@email.com" `
-  --profile bedrock-dev
+  --profile bedrock-terraform
 
 # 取得した sub を terraform.tfvars に設定して再 apply
 # allowed_sub = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
@@ -72,10 +72,16 @@ aws cognito-idp admin-get-user `
 
 ## 3. Lambda パッケージビルド
 
+`terraform plan` 実行時に `archive_file` データソースが `lambda/` を `dist/lambda.zip` へ自動パッケージ化する。`build-lambda.ps1` の手動実行は不要。
+
+`dist/` ディレクトリが存在しない場合は `terraform plan` 前に作成する（`local-verify.ps1` が自動作成する）。
+
 ```powershell
-cd C:\Users\Hidey\AWS-Learning
-.\scripts\build-lambda.ps1
+# dist/ がなければ作成する（terraform plan で archive_file が参照する出力先）
+if (-not (Test-Path "dist")) { New-Item -ItemType Directory dist }
 ```
+
+> `terraform plan -out=tfplan` で保存したプランを `terraform apply tfplan` で適用する場合、`dist/lambda.zip` をプラン保存後から apply まで変更しないこと。
 
 ---
 
@@ -105,9 +111,9 @@ cd C:\Users\Hidey\AWS-Learning
 # build-frontend.ps1 で作業ディレクトリが変わる場合があるため明示的に戻す
 cd C:\Users\Hidey\AWS-Learning\terraform
 $BUCKET = terraform output -raw frontend_bucket_name
-aws s3 sync ..\frontend\dist\ "s3://$BUCKET/" --profile bedrock-dev
+aws s3 sync ..\frontend\dist\ "s3://$BUCKET/" --profile bedrock-terraform
 $CF_ID = terraform output -raw cloudfront_distribution_id
-aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*" --profile bedrock-dev
+aws cloudfront create-invalidation --distribution-id $CF_ID --paths "/*" --profile bedrock-terraform
 ```
 
 ---

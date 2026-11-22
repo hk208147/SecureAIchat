@@ -102,7 +102,7 @@ Verification command (requires aws login with bedrock-dev profile):
 aws bedrock get-inference-profile \
   --inference-profile-identifier au.anthropic.claude-sonnet-4-6 \
   --region ap-southeast-2 \
-  --profile bedrock-dev
+  --profile bedrock-terraform
 ```
 
 Expected ARN patterns (unconfirmed — verify output above):
@@ -157,7 +157,7 @@ After Cognito user creation, retrieve the user's `sub` from:
 aws cognito-idp admin-get-user \
   --user-pool-id <user_pool_id> \
   --username <email> \
-  --profile bedrock-dev
+  --profile bedrock-terraform
 ```
 
 Set in `terraform.tfvars`:
