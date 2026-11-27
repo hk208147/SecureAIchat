@@ -197,7 +197,7 @@ export default function App() {
           />
         )}
         <SessionList
-          key={projectId ?? 'general'}
+          key={`sessions:${projectId ?? 'general'}`}
           projectId={projectId}
           projectControls={
             <div className="project-controls">
@@ -238,7 +238,7 @@ export default function App() {
           }}
         />
         <ChatInterface
-          key={projectId ?? 'general'}
+          key={`chat:${projectId ?? 'general'}`}
           project={project}
           onProjectChange={(updated) => setProjects((previous) =>
             previous.map((item) => item.id === updated.id ? updated : item))}
