@@ -287,6 +287,4 @@ python -m pytest tests/ -v
 - [コストモデル](docs/COST_MODEL.md)
 - [実装メモ](docs/IMPLEMENTATION_NOTES.md)
 
-### 段階1の論文執筆支援
 
-Persona管理、論旨検討、資料引用、RAG、Web検索の設計と有効化手順は[段階1の開発方針と機能仕様](docs/PHASE1_RESEARCH_ASSISTANT.md)を参照してください。レビュー用の確認事項は[Claude Code向けレビュー引き継ぎ](docs/PHASE1_CLAUDE_REVIEW.md)に記載しています。
