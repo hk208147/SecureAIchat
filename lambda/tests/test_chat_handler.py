@@ -432,6 +432,106 @@ def test_save_session_called_when_history_exists(mock_invoke, mock_table):
         mock_save_session.assert_called_once()
 
 
+# --- GET /messages Decimal → 200 regression ---
+
+@patch("chat_handler._table", new_callable=MagicMock)
+def test_get_messages_decimal_values_return_200(mock_table):
+    """GET /messages must return 200 when DynamoDB items contain Decimal (not TypeError→502)."""
+    from decimal import Decimal
+    import chat_handler
+    import time as _time
+    future_ttl = Decimal(str(int(_time.time()) + 86400))
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "pk": "USER#test-sub-123#SESSION#sess1",
+                "sk": "MSG#2026-01-01T00:00:00+00:00#abc12345",
+                "role": "user",
+                "content": "hello",
+                "in_tok": Decimal("100"),
+                "out_tok": Decimal("0"),
+                "ttl": future_ttl,
+            },
+            {
+                "pk": "USER#test-sub-123#SESSION#sess1",
+                "sk": "MSG#2026-01-01T00:00:00.000001+00:00#def67890",
+                "role": "assistant",
+                "content": "world",
+                "in_tok": Decimal("0"),
+                "out_tok": Decimal("50"),
+                "response_time_ms": Decimal("1234"),
+                "model_used": "au.anthropic.claude-sonnet-4-6",
+                "ttl": future_ttl,
+            },
+        ]
+    }
+    event = _make_event(method="GET", path="/messages")
+    event["queryStringParameters"] = {"session_id": "sess1"}
+    result = chat_handler.lambda_handler(event, _make_context())
+    assert result["statusCode"] == 200
+    body = json.loads(result["body"])
+    msgs = body["messages"]
+    assert len(msgs) == 2
+    asst = next(m for m in msgs if m["role"] == "assistant")
+    assert asst["out_tok"] == 50
+    assert asst["response_time_ms"] == 1234
+
+
+@patch("chat_handler._table", new_callable=MagicMock)
+def test_get_messages_research_conversation_return_200(mock_table):
+    """GET /messages with research_context and citations must serialize to 200."""
+    from decimal import Decimal
+    import chat_handler
+    import time as _time
+    future_ttl = Decimal(str(int(_time.time()) + 86400))
+    citation = {
+        "id": "src-1",
+        "kind": "knowledge",
+        "title": "Doc",
+        "excerpt": "text",
+        "personaId": "default",
+        "documentId": "doc-abc",
+    }
+    research_ctx = {"persona_id": "default", "mode": "general", "chat_type": "RAG"}
+    mock_table.query.return_value = {
+        "Items": [
+            {
+                "pk": "USER#test-sub-123#SESSION#sess-rag",
+                "sk": "MSG#2026-01-01T00:00:00+00:00#aaa",
+                "role": "user",
+                "content": "query",
+                "in_tok": Decimal("0"),
+                "out_tok": Decimal("0"),
+                "research_context": research_ctx,
+                "ttl": future_ttl,
+            },
+            {
+                "pk": "USER#test-sub-123#SESSION#sess-rag",
+                "sk": "MSG#2026-01-01T00:00:00.000001+00:00#bbb",
+                "role": "assistant",
+                "content": "answer",
+                "in_tok": Decimal("0"),
+                "out_tok": Decimal("80"),
+                "response_time_ms": Decimal("2500"),
+                "model_used": "au.anthropic.claude-sonnet-4-6",
+                "research_context": research_ctx,
+                "citations": [citation],
+                "ttl": future_ttl,
+            },
+        ]
+    }
+    event = _make_event(method="GET", path="/messages")
+    event["queryStringParameters"] = {"session_id": "sess-rag"}
+    result = chat_handler.lambda_handler(event, _make_context())
+    assert result["statusCode"] == 200
+    body = json.loads(result["body"])
+    msgs = body["messages"]
+    asst = next(m for m in msgs if m["role"] == "assistant")
+    assert asst["out_tok"] == 80
+    assert asst["research_context"]["chat_type"] == "RAG"
+    assert asst["citations"][0]["id"] == "src-1"
+
+
 def test_bedrock_503_is_not_automatically_retried(monkeypatch):
     """Exercise botocore retry handling without contacting AWS."""
     import io

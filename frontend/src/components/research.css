@@ -1,0 +1,78 @@
+.research-controls {
+  margin: 0;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  min-width: 0;
+  max-height: 40vh;
+  overflow: auto;
+}
+.research-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.research-toolbar label { display: inline-flex; align-items: center; gap: 6px; }
+.research-controls button, .research-download {
+  color: #1746a2;
+  background: white;
+  border: 1px solid #adb9cc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.research-controls button:disabled { color: #555; cursor: default; }
+.research-editor { padding: 10px 0; }
+.research-editor label { display: block; margin: 6px 0; }
+.research-editor label input, .research-editor label select, .research-editor label textarea { display: block; max-width: 100%; }
+.research-editor textarea { box-sizing: border-box; width: min(100%, 50rem); }
+.research-selection, .research-results, .research-citations { padding-left: 1.3rem; margin: 6px 0; }
+.research-selection button, .research-editor button { margin: 4px; }
+.research-excerpt { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.research-settings {
+  width: min(40rem, calc(100% - 2rem));
+  max-height: 85vh;
+  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid #adb9cc;
+  border-radius: 8px;
+}
+.research-settings::backdrop { background: rgb(0 0 0 / 45%); }
+.research-settings h2 { margin: 0; flex: 1; }
+.research-settings-editor { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.research-attachments { margin-top: 8px; }
+.research-attachments input { max-width: min(100%, 14rem); }
+.research-selection li { overflow-wrap: anywhere; }
+.chat-sidebar-footer {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  border-top: 1px solid #e5e7eb;
+  flex: 0 0 auto;
+}
+.chat-sidebar-footer button {
+  padding: 8px;
+  text-align: left;
+  color: #374151;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+}
+@media (max-width: 640px) {
+  .chat-sidebar { position: absolute; inset: 0 auto 0 0; z-index: 50; }
+}
+.project-controls {
+  display: grid;
+  gap: .5rem;
+  padding: .75rem;
+}
+
+.project-controls label, .project-controls form {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.project-controls input, .project-controls select {
+  flex: 1;
+  min-width: 0;
+}

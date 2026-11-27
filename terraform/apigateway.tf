@@ -4,7 +4,7 @@ resource "aws_apigatewayv2_api" "chat" {
 
   cors_configuration {
     allow_origins = ["https://${aws_cloudfront_distribution.web.domain_name}"]
-    allow_methods = ["POST", "GET", "DELETE", "OPTIONS"]
+    allow_methods = ["POST", "GET", "PUT", "DELETE", "OPTIONS"]
     allow_headers = ["Content-Type", "Authorization"]
     max_age       = 300
   }

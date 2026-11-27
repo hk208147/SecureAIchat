@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent, type FormEvent } from 'react';
+import { ResearchControls } from './ResearchControls';
+import type { ChatFile, ChatOptions } from '../api/chatApi';
 import { MessageList } from './MessageList';
 import { useChat } from '../hooks/useChat';
 import {
@@ -6,26 +8,58 @@ import {
   THINKING_LEVEL_LABELS,
   DEFAULT_MODEL_ID,
   DEFAULT_THINKING_LEVEL,
+  type ResearchSource,
+  type Project,
   type ThinkingLevel,
 } from '../types';
 
 interface Props {
+  project?: Project;
+  onProjectChange: (project: Project) => void;
   sessionId: string;
   getAccessToken: () => Promise<string | null>;
   onMessageSent?: () => void;
   onLoadingChange?: (loading: boolean) => void;
+  settingsOpen: boolean;
+  onCloseSettings: () => void;
+  deletedFileId?: string;
 }
 
-export function ChatInterface({ sessionId, getAccessToken, onMessageSent, onLoadingChange }: Props) {
+export function ChatInterface({ project, onProjectChange, sessionId, getAccessToken, onMessageSent, onLoadingChange, settingsOpen, onCloseSettings, deletedFileId }: Props) {
   const [inputText, setInputText] = useState('');
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL);
-  const { messages, isLoading, error, sendMessage } = useChat(
+  const { messages, isLoading, error, historyError, retryHistory, sendMessage } = useChat(
     sessionId,
     getAccessToken,
     modelId,
     thinkingLevel,
+    project?.id,
   );
+  const [personaChoices, setPersonaChoices] = useState<Record<string, boolean>>({});
+  const [selection, setSelection] = useState<{ sessionId: string; sources: ResearchSource[] }>();
+  const [attachmentDraft, setAttachmentDraft] = useState<{ sessionId: string; files: File[] }>();
+  const savedContext = [...messages].reverse().find((message) => message.research_context)?.research_context;
+  const options: ChatOptions = {
+    persona_enabled: personaChoices[sessionId] ?? savedContext?.persona_enabled ?? true,
+  };
+  const [savedSelections, setSavedSelections] = useState<Record<string, ChatFile[]>>({});
+  const savedFiles = savedSelections[sessionId] ?? [];
+
+  useEffect(() => {
+    if (!deletedFileId) return;
+    setSavedSelections((previous) => Object.fromEntries(Object.entries(previous).map(([id, selection]) => [
+      id, selection.filter((file) => file.id !== deletedFileId),
+    ])));
+  }, [deletedFileId]);
+  const sources = selection?.sessionId === sessionId ? selection.sources : [];
+  const setSources = (next: ResearchSource[]) => setSelection({ sessionId, sources: next });
+  const files = attachmentDraft?.sessionId === sessionId ? attachmentDraft.files : [];
+  const setFiles = (next: File[]) => setAttachmentDraft({ sessionId, files: next });
+
+  useEffect(() => {
+    setAttachmentDraft((draft) => draft?.sessionId === sessionId ? draft : undefined);
+  }, [sessionId]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -46,9 +80,10 @@ export function ChatInterface({ sessionId, getAccessToken, onMessageSent, onLoad
     e?.preventDefault();
     const text = inputText.trim();
     if (!text || isLoading) return;
-    const ok = await sendMessage(text);
+    const ok = await sendMessage(text, options, sources, files, savedFiles);
     if (ok) {
       setInputText('');
+      setSources([]);
       onMessageSent?.();
     }
     textareaRef.current?.focus();
@@ -100,7 +135,18 @@ export function ChatInterface({ sessionId, getAccessToken, onMessageSent, onLoad
         </div>
       </div>
 
-      <MessageList messages={messages} isLoading={isLoading} error={error} />
+      <ResearchControls key={sessionId} project={project} onProjectChange={onProjectChange}
+        options={options} sources={sources} files={files} savedFiles={savedFiles}
+        onSavedFiles={(next) => setSavedSelections((previous) => ({ ...previous, [sessionId]: next }))}
+        disabled={isLoading} settingsOpen={settingsOpen} onCloseSettings={onCloseSettings}
+        onOptions={(next) => setPersonaChoices((previous) => ({
+          ...previous, [sessionId]: next.persona_enabled !== false,
+        }))}
+        onSources={setSources} onFiles={setFiles} getAccessToken={getAccessToken} />
+      <MessageList messages={messages} isLoading={isLoading} error={error}
+        historyError={historyError} onRetryHistory={retryHistory}
+        sessionId={sessionId} projectId={project?.id}
+        getAccessToken={getAccessToken} />
 
       <form onSubmit={(e) => void handleSubmit(e)} style={styles.form}>
         <div style={styles.inputWrapper}>

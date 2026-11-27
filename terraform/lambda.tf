@@ -102,19 +102,25 @@ resource "aws_lambda_function" "chat" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE       = aws_dynamodb_table.chat.name
-      ALLOWED_ORIGIN       = "https://${aws_cloudfront_distribution.web.domain_name}"
-      MODEL_ID             = "au.anthropic.claude-sonnet-4-6"
-      BEDROCK_REGION       = var.aws_region
-      MAX_TOKENS           = "4000"
-      MAX_CONTEXT_MESSAGES = "10"
-      ALLOWED_SUB          = var.allowed_sub
+      DYNAMODB_TABLE           = aws_dynamodb_table.chat.name
+      ALLOWED_ORIGIN           = "https://${aws_cloudfront_distribution.web.domain_name}"
+      MODEL_ID                 = "au.anthropic.claude-sonnet-4-6"
+      BEDROCK_REGION           = var.aws_region
+      MAX_TOKENS               = "4000"
+      MAX_CONTEXT_MESSAGES     = "10"
+      ALLOWED_SUB              = var.allowed_sub
+      CHAT_FILES_BUCKET        = aws_s3_bucket.chat_files.id
+      RESEARCH_DOCUMENT_BUCKET = (var.enable_research_knowledge_base && var.enable_research_rag_active) ? aws_s3_bucket.research[0].id : ""
+      RESEARCH_KB_ID           = (var.enable_research_knowledge_base && var.enable_research_rag_active) ? aws_cloudformation_stack.research[0].outputs["KnowledgeBaseId"] : ""
+      RESEARCH_DATA_SOURCE_ID  = (var.enable_research_knowledge_base && var.enable_research_rag_active) ? aws_cloudformation_stack.research[0].outputs["DataSourceId"] : ""
+      RESEARCH_WEB_SEARCH      = tostring(var.enable_research_web_search)
     }
   }
 
   depends_on = [
     aws_cloudwatch_log_group.lambda,
     aws_iam_role_policy.lambda_policy,
+    aws_iam_role_policy.chat_files,
   ]
 
   tags = local.tags

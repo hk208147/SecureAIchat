@@ -39,3 +39,8 @@ bedrock_opus46_base_model_arns = [
   "arn:aws:bedrock:ap-southeast-2::foundation-model/anthropic.claude-opus-4-6-v1",
   "arn:aws:bedrock:ap-southeast-4::foundation-model/anthropic.claude-opus-4-6-v1",
 ]
+
+# Stage 1 research features. Enable individually after reviewing the plan.
+# enable_research_knowledge_base = true
+# enable_research_web_search     = true
+# enable_research_rag_active     = true   # set to false to suspend RAG without destroying KB/S3

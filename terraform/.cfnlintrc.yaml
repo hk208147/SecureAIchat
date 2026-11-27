@@ -1,0 +1,3 @@
+# cfn-lint configuration for SecureAIChat Phase 1 research stack
+templates:
+  - research-stack.yaml

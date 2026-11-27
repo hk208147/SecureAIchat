@@ -441,3 +441,86 @@ def test_long_message_stored_and_retrieved_in_full(ddb_table):
     user_msgs = [m for m in history if m["role"] == "user"]
     assert len(user_msgs) == 1
     assert user_msgs[0]["content"] == long_msg
+
+
+# --- Decimal serialization (DynamoDB Number → Python Decimal) ---
+
+def test_get_display_messages_numeric_fields_are_json_serializable(ddb_table):
+    """boto3 high-level API returns numbers as Decimal; get_display_messages must convert to int."""
+    import json
+    conversation.save_session_if_new(ddb_table, "sub1", "sess-dec", "hi")
+    result = conversation.save_chat_turn(
+        ddb_table, "sub1", "sess-dec",
+        user_message="hi",
+        assistant_content="hello",
+        in_tok=100,
+        out_tok=50,
+        model_used="au.anthropic.claude-sonnet-4-6",
+        response_time_ms=1234,
+    )
+    assert result is True
+    msgs = conversation.get_display_messages(ddb_table, "sub1", "sess-dec")
+    assert len(msgs) == 2
+    # Must not raise TypeError: Object of type Decimal is not JSON serializable
+    body = json.dumps(msgs)
+    parsed = json.loads(body)
+    asst = next(m for m in parsed if m["role"] == "assistant")
+    assert asst["out_tok"] == 50
+    assert asst["response_time_ms"] == 1234
+    user_msg = next(m for m in parsed if m["role"] == "user")
+    assert user_msg["in_tok"] == 100
+
+
+def test_get_display_messages_missing_response_time_is_none(ddb_table):
+    """response_time_ms absent from old messages must remain None (not raise)."""
+    import json
+    now_ts = int(time.time())
+    ddb_table.put_item(Item={
+        "pk": "USER#sub-legacy#SESSION#sess-legacy",
+        "sk": "MSG#2026-01-01T00:00:00+00:00#abc12345",
+        "role": "assistant",
+        "content": "legacy reply",
+        "in_tok": 0,
+        "out_tok": 30,
+        "ttl": now_ts + 86400,
+    })
+    msgs = conversation.get_display_messages(ddb_table, "sub-legacy", "sess-legacy")
+    assert len(msgs) == 1
+    assert msgs[0]["response_time_ms"] is None
+    json.dumps(msgs)
+
+
+def test_get_display_messages_research_conversation_serializable(ddb_table):
+    """Research conversations with citations and research_context must serialize to JSON."""
+    import json
+    now_ts = int(time.time())
+    citation = {
+        "id": "src-1",
+        "kind": "knowledge",
+        "title": "Test Doc",
+        "excerpt": "some text",
+        "personaId": "default",
+        "documentId": "doc-abc",
+    }
+    research_ctx = {"persona_id": "default", "mode": "general", "chat_type": "RAG"}
+    ddb_table.put_item(Item={
+        "pk": "USER#sub-res#SESSION#sess-res",
+        "sk": "MSG#2026-01-01T00:00:00+00:00#aabbccdd",
+        "role": "assistant",
+        "content": "RAG answer",
+        "in_tok": 200,
+        "out_tok": 80,
+        "response_time_ms": 2500,
+        "model_used": "au.anthropic.claude-sonnet-4-6",
+        "research_context": research_ctx,
+        "citations": [citation],
+        "ttl": now_ts + 86400,
+    })
+    msgs = conversation.get_display_messages(ddb_table, "sub-res", "sess-res")
+    assert len(msgs) == 1
+    assert msgs[0]["research_context"] == research_ctx
+    assert msgs[0]["citations"][0]["id"] == "src-1"
+    body = json.dumps(msgs)
+    parsed = json.loads(body)
+    assert parsed[0]["out_tok"] == 80
+    assert parsed[0]["response_time_ms"] == 2500

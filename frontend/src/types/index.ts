@@ -3,7 +3,13 @@ export interface TokenUsage {
   output_tokens: number;
 }
 
+export interface MessageAttachments {
+  id: string;
+  files: string[];
+}
+
 export interface Message {
+  attachments?: MessageAttachments;
   id: string;
   role: 'user' | 'assistant';
   content: string;
@@ -12,11 +18,19 @@ export interface Message {
   model_used?: string;
   thinking_level?: string;
   response_time_ms?: number;
+  citations?: ResearchSource[];
+  research_context?: ResearchContext;
 }
 
 export interface Session {
   session_id: string;
   firstMessage: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  persona_id: string;
 }
 
 export interface ChatState {
@@ -60,3 +74,44 @@ export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
 
 export const DEFAULT_MODEL_ID = 'au.anthropic.claude-sonnet-4-6';
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = 'medium';
+
+export type ChatType = 'LLM' | 'RAG';
+export type WritingMode = 'general' | 'write' | 'review';
+
+export interface ResearchContext {
+  persona_enabled?: boolean;
+  persona_id: string;
+  mode: WritingMode;
+  chat_type: ChatType;
+}
+
+export interface ResearchSource {
+  id?: string;
+  kind: 'attachment' | 'web' | 'knowledge';
+  title: string;
+  excerpt: string;
+  locator?: string;
+  url?: string;
+  publishedAt?: string;
+  retrievedAt?: string;
+  personaId?: string;
+  documentId?: string;
+}
+
+export interface PersonaForm {
+  name: string;
+  description: string;
+  prompt: string;
+  chatType: ChatType;
+}
+
+export interface Persona extends PersonaForm {
+  id: string;
+  isDefault: boolean;
+}
+
+export interface ResearchDocument {
+  id: string;
+  name: string;
+  status: string;
+}

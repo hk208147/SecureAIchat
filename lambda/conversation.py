@@ -8,6 +8,7 @@ from boto3.dynamodb.types import TypeSerializer
 from botocore.exceptions import ClientError
 
 import config
+import history_files
 
 _serializer = TypeSerializer()
 
@@ -16,7 +17,7 @@ def _serialize_item(item: dict) -> dict:
     return {k: _serializer.serialize(v) for k, v in item.items()}
 
 
-def _ttl() -> int:
+def retention_deadline() -> int:
     return int(time.time()) + config.TTL_DAYS * 86400
 
 
@@ -32,15 +33,29 @@ def _session_pk(user_sub: str) -> str:
     return f"USER#{user_sub}"
 
 
+def session_deleted(table, user_sub, session_id):
+    record = table.get_item(
+        Key={"pk": _session_pk(user_sub), "sk": f"SESSION#{session_id}"}, ConsistentRead=True,
+    ).get("Item")
+    return bool(record and record.get("deleted") is True)
+
+
 def get_history(
-    table, user_sub: str, session_id: str, limit: int = config.MAX_CONTEXT_MESSAGES
+    table, user_sub: str, session_id: str, limit: int = config.MAX_CONTEXT_MESSAGES,
+    *, persona_id: str | None = "default",
 ) -> list[dict]:
     pk = _msg_pk(user_sub, session_id)
     now = _now()
     valid: list[dict] = []
+    history_filter = Attr("ttl").gt(now)
+    if persona_id is not None:
+        persona_filter = Attr("research_context.persona_id").eq(persona_id)
+        if persona_id == "default":
+            persona_filter = persona_filter | Attr("research_context.persona_id").not_exists()
+        history_filter = history_filter & persona_filter
     kwargs: dict = {
         "KeyConditionExpression": Key("pk").eq(pk) & Key("sk").begins_with("MSG#"),
-        "FilterExpression": Attr("ttl").gt(now),
+        "FilterExpression": history_filter,
         "ScanIndexForward": False,
         "Limit": limit * 3,
     }
@@ -80,15 +95,17 @@ def get_display_messages(
         sk = item.get("sk", "")
         parts = sk.split("#", 2)
         ts = parts[1] if len(parts) >= 2 else ""
+        rtime = item.get("response_time_ms")
         result.append({
             "role": item["role"],
             "content": item["content"],
             "timestamp": ts,
-            "in_tok": item.get("in_tok", 0),
-            "out_tok": item.get("out_tok", 0),
+            "in_tok": int(item.get("in_tok") or 0),
+            "out_tok": int(item.get("out_tok") or 0),
             "model_used": item.get("model_used"),
             "thinking_level": item.get("thinking_level"),
-            "response_time_ms": item.get("response_time_ms"),
+            "response_time_ms": int(rtime) if rtime is not None else None,
+            **{key: item[key] for key in ("research_context", "citations", "attachments") if key in item},
         })
     return result
 
@@ -115,7 +132,7 @@ def save_message(
         "content": content,
         "in_tok": in_tok,
         "out_tok": out_tok,
-        "ttl": _ttl(),
+        "ttl": retention_deadline(),
     }
     if model_used is not None:
         item["model_used"] = model_used
@@ -139,7 +156,7 @@ def save_session_if_new(
                 "session_id": session_id,
                 "firstMessage": first_message[:100],
                 "created_at": ts,
-                "ttl": _ttl(),
+                "ttl": retention_deadline(),
             },
             ConditionExpression="attribute_not_exists(pk) AND attribute_not_exists(sk)",
         )
@@ -160,10 +177,13 @@ def save_chat_turn(
     model_used: str | None = None,
     thinking_level: str | None = None,
     response_time_ms: int | None = None,
+    research_context: dict | None = None,
+    citations: list[dict] | None = None,
+    archived_files: tuple[dict, dict] | None = None,
 ) -> bool:
     """Write user+assistant messages transactionally, blocked by session tombstone.
 
-    Uses TransactWriteItems with a ConditionCheck on the session record.
+    The transaction also refreshes the session and publishes the attachment manifest.
     Returns True if saved, False if the session tombstone blocked the write.
     """
     table_name: str = table.name
@@ -176,6 +196,10 @@ def save_chat_turn(
     asst_uid = uuid.uuid4().hex[:8]
     user_ts = base_ts
     asst_ts = base_ts + timedelta(microseconds=1)
+    expires_at = retention_deadline()
+    if archived_files is not None:
+        manifest, pending_key = archived_files
+        expires_at = manifest["expires_at"]
 
     user_item: dict = {
         "pk": msg_pk,
@@ -184,7 +208,7 @@ def save_chat_turn(
         "content": user_message,
         "in_tok": in_tok,
         "out_tok": 0,
-        "ttl": _ttl(),
+        "ttl": expires_at,
     }
     asst_item: dict = {
         "pk": msg_pk,
@@ -193,35 +217,50 @@ def save_chat_turn(
         "content": assistant_content,
         "in_tok": 0,
         "out_tok": out_tok,
-        "ttl": _ttl(),
+        "ttl": expires_at,
     }
+    if research_context is not None:
+        user_item["research_context"] = research_context
+    if archived_files is not None:
+        user_item["attachments"] = history_files.public(manifest)
     for attr, val in (
         ("model_used", model_used),
         ("thinking_level", thinking_level),
         ("response_time_ms", response_time_ms),
+        ("research_context", research_context),
+        ("citations", citations),
     ):
         if val is not None:
             asst_item[attr] = val
 
-    try:
-        client.transact_write_items(TransactItems=[
-            {
-                "ConditionCheck": {
-                    "TableName": table_name,
-                    "Key": {
-                        "pk": {"S": _session_pk(user_sub)},
-                        "sk": {"S": f"SESSION#{session_id}"},
-                    },
-                    # Passes for non-existent session records (new session) and
-                    # existing sessions without a tombstone. Fails only when
-                    # deleted=True was written by delete_session.
-                    "ConditionExpression": "attribute_not_exists(#d)",
-                    "ExpressionAttributeNames": {"#d": "deleted"},
-                }
-            },
-            {"Put": {"TableName": table_name, "Item": _serialize_item(user_item)}},
-            {"Put": {"TableName": table_name, "Item": _serialize_item(asst_item)}},
+    actions = [
+        {"Update": {
+            "TableName": table_name,
+            "Key": _serialize_item({"pk": _session_pk(user_sub), "sk": f"SESSION#{session_id}"}),
+            "ConditionExpression": "attribute_not_exists(deleted)",
+            "UpdateExpression": (
+                "SET #ttl = :expiry, session_id = if_not_exists(session_id, :session), "
+                "firstMessage = if_not_exists(firstMessage, :first), "
+                "created_at = if_not_exists(created_at, :created)"
+            ),
+            "ExpressionAttributeNames": {"#ttl": "ttl"},
+            "ExpressionAttributeValues": _serialize_item({
+                ":expiry": expires_at, ":session": session_id,
+                ":first": user_message[:100], ":created": user_ts.isoformat(),
+            }),
+        }},
+        {"Put": {"TableName": table_name, "Item": _serialize_item(user_item)}},
+        {"Put": {"TableName": table_name, "Item": _serialize_item(asst_item)}},
+    ]
+    if archived_files is not None:
+        actions.extend([
+            {"Put": {"TableName": table_name, "Item": _serialize_item(manifest),
+                     "ConditionExpression": "attribute_not_exists(pk)"}},
+            {"Delete": {"TableName": table_name, "Key": _serialize_item(pending_key),
+                        "ConditionExpression": "attribute_exists(pk)"}},
         ])
+    try:
+        client.transact_write_items(TransactItems=actions)
         return True
     except ClientError as exc:
         if exc.response["Error"]["Code"] == "TransactionCanceledException":
@@ -242,19 +281,22 @@ def delete_session(table, user_sub: str, session_id: str) -> None:
         "pk": _session_pk(user_sub),
         "sk": f"SESSION#{session_id}",
         "deleted": True,
-        "ttl": _ttl(),
+        "ttl": retention_deadline(),
     })
 
     # 2. Query all message keys (projection only, follow pagination)
     pk_msg = _msg_pk(user_sub, session_id)
     kwargs: dict = {
         "KeyConditionExpression": Key("pk").eq(pk_msg) & Key("sk").begins_with("MSG#"),
-        "ProjectionExpression": "pk, sk",
+        "ProjectionExpression": "pk, sk, attachments",
+        "ConsistentRead": True,
     }
     keys: list[dict] = []
     while True:
         resp = table.query(**kwargs)
         for item in resp.get("Items", []):
+            if item.get("attachments"):
+                history_files.remove_turn(table, item["attachments"]["id"])
             keys.append({"pk": item["pk"], "sk": item["sk"]})
         if "LastEvaluatedKey" not in resp:
             break

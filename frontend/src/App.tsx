@@ -2,8 +2,11 @@ import { useState, useCallback, useEffect } from 'react';
 import { signInWithRedirect } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import { useAuth } from './hooks/useAuth';
+import { SavedFilesDialog } from './components/SavedFilesDialog';
 import { SessionList } from './components/SessionList';
 import { ChatInterface } from './components/ChatInterface';
+import { createProject, fetchProjects, requireAccessToken } from './api/chatApi';
+import type { Project } from './types';
 
 function newSessionId(): string {
   return crypto.randomUUID();
@@ -16,7 +19,59 @@ export default function App() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 640);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [savedFilesOpen, setSavedFilesOpen] = useState(false);
+  const [deletedFileId, setDeletedFileId] = useState<string>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [isCurrentSessionLoading, setIsCurrentSessionLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string>();
+  const [projectName, setProjectName] = useState('');
+  const [projectError, setProjectError] = useState('');
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectLoadAttempt, setProjectLoadAttempt] = useState(0);
+  const project = projects.find(({ id }) => id === projectId);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let current = true;
+    requireAccessToken(getAccessToken).then(fetchProjects).then(({ projects }) => {
+      if (current) setProjects((previous) => {
+        const byId = new Map(projects.map((item) => [item.id, item]));
+        for (const item of previous) byId.set(item.id, item);
+        return [...byId.values()];
+      });
+    }, () => {
+      if (current) setProjectError('プロジェクト一覧を読み込めませんでした。');
+    });
+    return () => { current = false; };
+  }, [isAuthenticated, getAccessToken, projectLoadAttempt]);
+
+  function switchProject(id?: string) {
+    setProjectId(id);
+    setSessionId(newSessionId());
+    setIsCurrentSessionLoading(false);
+    setSavedFilesOpen(false);
+    setDeletedFileId(undefined);
+    setSettingsOpen(false);
+    if (isMobile) setIsSidebarOpen(false);
+  }
+
+  async function addProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!projectName.trim() || creatingProject) return;
+    setCreatingProject(true);
+    setProjectError('');
+    try {
+      const created = await createProject(await requireAccessToken(getAccessToken), projectName.trim());
+      setProjects((previous) => [...previous.filter(({ id }) => id !== created.id), created]);
+      setProjectName('');
+      switchProject(created.id);
+    } catch (cause) {
+      setProjectError(cause instanceof Error ? cause.message : 'プロジェクトを作成できませんでした。');
+    } finally {
+      setCreatingProject(false);
+    }
+  }
 
   // R01: listen for OAuth callback failure on /callback route
   useEffect(() => {
@@ -126,7 +181,7 @@ export default function App() {
             ☰
           </button>
         )}
-        <span style={styles.headerTitle}>Secure AI Chat</span>
+        <span style={styles.headerTitle}>Secure AI Chat · {project?.name ?? '一般チャット'}</span>
         <button onClick={() => void signOut()} style={styles.signOutBtn}>
           サインアウト
         </button>
@@ -142,6 +197,29 @@ export default function App() {
           />
         )}
         <SessionList
+          key={projectId ?? 'general'}
+          projectId={projectId}
+          projectControls={
+            <div className="project-controls">
+              <label>プロジェクト
+                <select value={projectId ?? ''} onChange={(event) => switchProject(event.target.value || undefined)}>
+                  <option value="">一般チャット</option>
+                  {projects.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+                </select>
+              </label>
+              <form onSubmit={(event) => void addProject(event)}>
+                <input aria-label="新規プロジェクト名" placeholder="新規プロジェクト名"
+                  value={projectName} maxLength={80} onChange={(event) => setProjectName(event.target.value)} />
+                <button disabled={creatingProject || !projectName.trim()}>作成</button>
+              </form>
+              {projectError && <p role="alert">{projectError}{' '}
+                <button type="button" onClick={() => {
+                  setProjectError('');
+                  setProjectLoadAttempt((attempt) => attempt + 1);
+                }}>一覧を再読み込み</button>
+              </p>}
+            </div>
+          }
           currentSessionId={sessionId}
           getAccessToken={getAccessToken}
           onSelectSession={handleSelectSession}
@@ -150,14 +228,32 @@ export default function App() {
           loadingSessionId={isCurrentSessionLoading ? sessionId : undefined}
           refreshKey={sessionRefreshKey}
           hidden={isMobile && !isSidebarOpen}
+          onOpenSavedFiles={() => {
+            setIsSidebarOpen(false);
+            setSavedFilesOpen(true);
+          }}
+          onOpenSettings={() => {
+            setIsSidebarOpen(false);
+            setSettingsOpen(true);
+          }}
         />
         <ChatInterface
+          key={projectId ?? 'general'}
+          project={project}
+          onProjectChange={(updated) => setProjects((previous) =>
+            previous.map((item) => item.id === updated.id ? updated : item))}
           sessionId={sessionId}
           getAccessToken={getAccessToken}
           onMessageSent={handleMessageSent}
           onLoadingChange={setIsCurrentSessionLoading}
+          settingsOpen={settingsOpen}
+          deletedFileId={deletedFileId}
+          onCloseSettings={() => setSettingsOpen(false)}
         />
       </div>
+      {savedFilesOpen && <SavedFilesDialog getAccessToken={getAccessToken}
+        projectId={projectId}
+        onClose={() => setSavedFilesOpen(false)} onDelete={setDeletedFileId} />}
     </div>
   );
 }
@@ -185,6 +281,10 @@ const styles: Record<string, React.CSSProperties> = {
   headerTitle: {
     fontWeight: 700,
     fontSize: '16px',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   hamburger: {
     fontSize: '18px',

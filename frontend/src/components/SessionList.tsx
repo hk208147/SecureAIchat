@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import type { Session } from '../types';
 import { fetchSessions, deleteSession } from '../api/chatApi';
 
@@ -11,6 +11,10 @@ interface Props {
   loadingSessionId?: string;
   refreshKey?: number;
   hidden?: boolean;
+  onOpenSavedFiles: () => void;
+  onOpenSettings: () => void;
+  projectId?: string;
+  projectControls: ReactNode;
 }
 
 export function SessionList({
@@ -22,24 +26,31 @@ export function SessionList({
   loadingSessionId,
   refreshKey,
   hidden,
+  onOpenSavedFiles,
+  onOpenSettings,
+  projectId,
+  projectControls,
 }: Props) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const loadSessions = useCallback(async () => {
+    setLoading(true);
+    setFetchError(null);
     const token = await getAccessToken();
-    if (!token) return;
+    if (!token) { setLoading(false); return; }
     try {
-      const data = await fetchSessions(token);
+      const data = await fetchSessions(token, projectId);
       setSessions(data.sessions);
     } catch {
-      // non-fatal: silently fail
+      setFetchError('履歴の読み込みに失敗しました。');
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken]);
+  }, [getAccessToken, projectId]);
 
   useEffect(() => {
     void loadSessions();
@@ -51,7 +62,7 @@ export function SessionList({
     if (!token) return;
     setDeleting(true);
     try {
-      await deleteSession(pendingDeleteId, token);
+      await deleteSession(pendingDeleteId, token, projectId);
       setSessions((prev) => prev.filter((s) => s.session_id !== pendingDeleteId));
       onDeleteSession(pendingDeleteId);
     } catch {
@@ -60,10 +71,11 @@ export function SessionList({
       setDeleting(false);
       setPendingDeleteId(null);
     }
-  }, [pendingDeleteId, getAccessToken, onDeleteSession]);
+  }, [pendingDeleteId, getAccessToken, onDeleteSession, projectId]);
 
   return (
-    <div style={{ ...styles.container, ...(hidden ? { display: 'none' } : {}) }}>
+    <div className="chat-sidebar" style={{ ...styles.container, ...(hidden ? { display: 'none' } : {}) }}>
+      {projectControls}
       <div style={styles.header}>
         <span style={styles.title}>会話一覧</span>
         <button onClick={onNewSession} style={styles.newBtn} title="新しい会話">
@@ -73,7 +85,14 @@ export function SessionList({
 
       {loading && <p style={styles.hint}>読み込み中…</p>}
 
-      {!loading && sessions.length === 0 && (
+      {!loading && fetchError && (
+        <div style={styles.errorBox}>
+          <p style={styles.errorText}>{fetchError}</p>
+          <button onClick={() => void loadSessions()} style={styles.retryBtn}>再試行</button>
+        </div>
+      )}
+
+      {!loading && !fetchError && sessions.length === 0 && (
         <p style={styles.hint}>会話履歴なし</p>
       )}
 
@@ -131,6 +150,10 @@ export function SessionList({
           </li>
         ))}
       </ul>
+      <nav className="chat-sidebar-footer" aria-label="資料と設定">
+        <button type="button" onClick={onOpenSavedFiles}>{projectId ? 'プロジェクト資料' : '保存済み資料'}</button>
+        <button type="button" onClick={onOpenSettings}>設定</button>
+      </nav>
     </div>
   );
 }
@@ -170,6 +193,8 @@ const styles: Record<string, React.CSSProperties> = {
     listStyle: 'none',
     margin: 0,
     padding: '8px 0',
+    flex: 1,
+    overflowY: 'auto',
   },
   item: {
     margin: 0,
@@ -254,5 +279,22 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#9ca3af',
     padding: '8px 16px',
     margin: 0,
+  },
+  errorBox: {
+    padding: '8px 16px',
+  },
+  errorText: {
+    fontSize: '12px',
+    color: '#dc2626',
+    margin: '0 0 6px',
+  },
+  retryBtn: {
+    fontSize: '12px',
+    padding: '3px 10px',
+    borderRadius: '4px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#fff',
+    color: '#374151',
+    cursor: 'pointer',
   },
 };

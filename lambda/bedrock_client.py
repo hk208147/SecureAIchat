@@ -1,3 +1,4 @@
+import chat_files
 import config
 import logger
 
@@ -13,7 +14,9 @@ def _build_system(system_text: str) -> list[dict]:
     return parts
 
 
-def _build_messages(history: list[dict], user_message: str) -> list[dict]:
+def _build_messages(
+    history: list[dict], user_message: str, documents: list[dict] | None = None
+) -> list[dict]:
     messages: list[dict] = []
     for entry in history:
         messages.append({"role": entry["role"], "content": [{"text": entry["content"]}]})
@@ -22,7 +25,9 @@ def _build_messages(history: list[dict], user_message: str) -> list[dict]:
     cumulative += _estimate_tokens(user_message)
 
     user_content: list[dict] = [{"text": user_message}]
-    if cumulative >= config.CACHE_MIN_TOKENS:
+    if documents:
+        user_content.extend(documents)
+    elif cumulative >= config.CACHE_MIN_TOKENS:
         user_content.append({"cachePoint": {"type": "default"}})
 
     messages.append({"role": "user", "content": user_content})
@@ -43,10 +48,11 @@ def invoke_chat(
     system_text: str = _SYSTEM_TEXT,
     model_id: str | None = None,
     thinking_level: str | None = None,
+    documents: list[dict] | None = None,
 ) -> dict:
     resolved_model = model_id if model_id is not None else config.MODEL_ID
     system = _build_system(system_text)
-    messages = _build_messages(history, user_message)
+    messages = _build_messages(history, user_message, documents)
 
     inference_config: dict = {"maxTokens": config.MAX_TOKENS}
     additional_fields: dict | None = None
@@ -69,6 +75,9 @@ def invoke_chat(
     }
     if additional_fields is not None:
         kwargs["additionalModelRequestFields"] = additional_fields
+
+    if documents:
+        chat_files.check_request_size(kwargs)
 
     logger.log(
         "INFO", "bedrock_invoke_start",

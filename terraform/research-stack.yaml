@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: SecureAIChat document retrieval with Amazon Bedrock and S3 Vectors
+Parameters:
+  VectorBucketName: {Type: String}
+  DocumentBucketArn: {Type: String}
+  RoleArn: {Type: String}
+  EmbeddingModelArn: {Type: String}
+Resources:
+  VectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    Properties:
+      VectorBucketName: !Ref VectorBucketName
+  VectorIndex:
+    Type: AWS::S3Vectors::Index
+    Properties:
+      VectorBucketArn: !GetAtt VectorBucket.VectorBucketArn
+      IndexName: research
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys: [AMAZON_BEDROCK_TEXT, AMAZON_BEDROCK_METADATA]
+  KnowledgeBase:
+    Type: AWS::Bedrock::KnowledgeBase
+    Properties:
+      Name: !Sub '${AWS::StackName}-kb'
+      RoleArn: !Ref RoleArn
+      KnowledgeBaseConfiguration:
+        Type: VECTOR
+        VectorKnowledgeBaseConfiguration:
+          EmbeddingModelArn: !Ref EmbeddingModelArn
+      StorageConfiguration:
+        Type: S3_VECTORS
+        S3VectorsConfiguration:
+          IndexArn: !GetAtt VectorIndex.IndexArn
+  DocumentSource:
+    Type: AWS::Bedrock::DataSource
+    Properties:
+      Name: research-documents
+      DataDeletionPolicy: DELETE
+      KnowledgeBaseId: !GetAtt KnowledgeBase.KnowledgeBaseId
+      DataSourceConfiguration:
+        Type: S3
+        S3Configuration:
+          BucketArn: !Ref DocumentBucketArn
+          InclusionPrefixes: [documents/]
+Outputs:
+  KnowledgeBaseId:
+    Value: !GetAtt KnowledgeBase.KnowledgeBaseId
+  KnowledgeBaseArn:
+    Value: !GetAtt KnowledgeBase.KnowledgeBaseArn
+  DataSourceId:
+    Value: !GetAtt DocumentSource.DataSourceId

@@ -1,11 +1,18 @@
-import { useEffect, useRef } from 'react';
-import type { Message } from '../types';
+import { useEffect, useRef, useState } from 'react';
+import { SourceDetails } from './ResearchControls';
+import { getDocumentDownload, getHistoryFileDownload, requireAccessToken } from '../api/chatApi';
+import type { Message, ResearchSource } from '../types';
 import { THINKING_LEVEL_LABELS, MODELS } from '../types';
 
 interface Props {
+  sessionId: string;
+  projectId?: string;
   messages: Message[];
   isLoading: boolean;
   error: string | null;
+  historyError?: string | null;
+  onRetryHistory?: () => void;
+  getAccessToken: () => Promise<string | null>;
 }
 
 // USD per 1M tokens. AU Geo Cross-Region, on-demand Standard tier.
@@ -54,7 +61,7 @@ const metaStyle: React.CSSProperties = {
   color: '#888',
 };
 
-export function MessageList({ messages, isLoading, error }: Props) {
+export function MessageList({ messages, isLoading, error, historyError, onRetryHistory, getAccessToken, sessionId, projectId }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,7 +70,16 @@ export function MessageList({ messages, isLoading, error }: Props) {
 
   return (
     <div style={styles.container}>
-      {messages.length === 0 && !isLoading && (
+      {messages.length === 0 && !isLoading && historyError && (
+        <div style={styles.historyError}>
+          <p style={styles.historyErrorText}>{historyError}</p>
+          {onRetryHistory && (
+            <button onClick={onRetryHistory} style={styles.retryBtn}>再試行</button>
+          )}
+        </div>
+      )}
+
+      {messages.length === 0 && !isLoading && !historyError && (
         <p style={styles.empty}>メッセージを入力して会話を始めましょう。</p>
       )}
 
@@ -82,8 +98,18 @@ export function MessageList({ messages, isLoading, error }: Props) {
             }}
           >
             <p style={styles.content}>{msg.content}</p>
+            {msg.attachments && <HistoryAttachments attachment={msg.attachments} getAccessToken={getAccessToken}
+              sessionId={sessionId} projectId={projectId} />}
             {msg.role === 'assistant' && (
-              <AssistantMeta message={msg} />
+              <>
+                <AssistantMeta message={msg} />
+                {!!msg.citations?.length && <ul className="research-citations" aria-label="回答の出典">
+                  {msg.citations.map((source) => <li key={source.id}>
+                    <SourceDetails source={source} />
+                    {source.documentId && source.personaId && <DocumentDownload source={source} getAccessToken={getAccessToken} />}
+                  </li>)}
+                </ul>}
+              </>
             )}
           </div>
         </div>
@@ -114,12 +140,61 @@ export function MessageList({ messages, isLoading, error }: Props) {
   );
 }
 
+function HistoryAttachments({ attachment, getAccessToken, sessionId, projectId }: {
+  attachment: NonNullable<Message['attachments']>;
+  getAccessToken: Props['getAccessToken'];
+  sessionId: string;
+  projectId?: string;
+}) {
+  const [status, setStatus] = useState('');
+  return <ul className="research-selection" aria-label="送信済みの添付資料">
+    {attachment.files.map((name, index) => <li key={index}>
+      <button type="button" className="research-download" onClick={async () => {
+        try {
+          setStatus('');
+          const token = await requireAccessToken(getAccessToken);
+          const { url } = await getHistoryFileDownload(token, sessionId, attachment.id, index, projectId);
+          if (!url.startsWith('https://')) throw new Error('ダウンロード先を確認できません。');
+          window.location.assign(url);
+        } catch (cause) {
+          setStatus(cause instanceof Error ? cause.message : '添付資料を取得できませんでした。');
+        }
+      }}>{name}をダウンロード</button>
+    </li>)}
+    {status && <li role="status">{status}</li>}
+  </ul>;
+}
+
 const dotAnimation = `
   @keyframes bounce {
     0%, 80%, 100% { transform: translateY(0); }
     40% { transform: translateY(-6px); }
   }
 `;
+
+function DocumentDownload({ source, getAccessToken }: {
+  source: ResearchSource;
+  getAccessToken: () => Promise<string | null>;
+}) {
+  const [status, setStatus] = useState('');
+  return (
+    <>
+      <button type="button" className="research-download" onClick={async () => {
+        if (!source.documentId || !source.personaId) return;
+        try {
+          setStatus('');
+          const token = await requireAccessToken(getAccessToken);
+          const { url } = await getDocumentDownload(token, source.personaId, source.documentId);
+          if (!url.startsWith('https://')) throw new Error('ダウンロード先を確認できません。');
+          window.location.assign(url);
+        } catch {
+          setStatus('原本を取得できませんでした。登録状態を確認してください。');
+        }
+      }}>原本をダウンロード</button>
+      {status && <span role="status">{status}</span>}
+    </>
+  );
+}
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
@@ -182,5 +257,23 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '10px 14px',
     color: '#b91c1c',
     fontSize: '14px',
+  },
+  historyError: {
+    textAlign: 'center' as const,
+    marginTop: '40px',
+  },
+  historyErrorText: {
+    color: '#b91c1c',
+    fontSize: '14px',
+    margin: '0 0 10px',
+  },
+  retryBtn: {
+    fontSize: '13px',
+    padding: '5px 14px',
+    borderRadius: '6px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#fff',
+    color: '#374151',
+    cursor: 'pointer',
   },
 };
